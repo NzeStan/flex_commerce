@@ -1,0 +1,28 @@
+line-length = 120
+target-version = "py310"
+extend-exclude = [".venv", ".venv312", ".venv52", "**/migrations/*.py", "*.md"]
+
+[lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "DJ", "S", "T20"]
+ignore = [
+    "N806",   # uppercase variables (User = get_user_model())
+    "B904",   # raise ... from inside except: handled case by case
+    "S101",   # assert (tests)
+    "S311",   # random is not used for security
+    "DJ001",  # CharField null: used deliberately for unique share tokens
+    "C408",   # dict(key=value) is often clearer than a literal
+
+]
+
+[lint.per-file-ignores]
+"**/tests/**" = ["S105", "S106", "S108", "DJ008", "N802", "E501", "T201"]
+"integration_tests/**" = ["S105", "S106", "E501", "DJ008"]
+"scripts/**" = ["T201", "E501", "S603", "S106"]
+
+[lint.isort]
+known-first-party = [
+    "flexcommerce", "flexcommerce_core", "flexcommerce_catalog", "flexcommerce_cart", "flexcommerce_checkout",
+    "flexcommerce_pricing", "flexcommerce_inventory", "flexcommerce_discounts", "flexcommerce_shipping",
+    "flexcommerce_orders", "flexcommerce_payments", "flexcommerce_engagement", "flexcommerce_marketplace",
+    "flexcommerce_notifications", "flexcommerce_analytics",
+]

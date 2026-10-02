@@ -1,0 +1,82 @@
+name: Release
+
+# Publishing a GitHub Release (tag like v1.0.0) publishes every package to PyPI
+# and attaches the wheels and source packages to the release.
+# Uses PyPI trusted publishing: add this repository + workflow ("release.yml") as a
+# trusted publisher on each PyPI project first, with the environment named below.
+
+on:
+  release:
+    types: [published]
+
+env:
+  TAG: ${{ github.event.release.tag_name }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build twine
+      - name: Release tag matches package versions
+        run: |
+          version="${TAG#v}"
+          grep -q "^VERSION = \"$version\"" scripts/gen_packaging.py || { echo "Tag $TAG != VERSION"; exit 1; }
+          python scripts/gen_packaging.py --check
+      - run: for d in flexcommerce-*; do python -m build --outdir dist "$d"; done
+      - run: twine check --strict dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  # One job per PyPI project. PyPI requires every (pending) trusted publisher to be
+  # unique, so each project uses its own GitHub environment: "pypi" for the
+  # flexcommerce meta-package and "pypi-<app>" (e.g. "pypi-core") for the others.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [meta, core, catalog, pricing, inventory, discounts, shipping, cart, orders,
+              payments, checkout, engagement, notifications, analytics, marketplace]
+    environment: ${{ matrix.app == 'meta' && 'pypi' || format('pypi-{0}', matrix.app) }}
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Select this project's files
+        run: |
+          if [ "${{ matrix.app }}" = meta ]; then prefix=flexcommerce; else prefix="flexcommerce_${{ matrix.app }}"; fi
+          mkdir upload
+          mv dist/"$prefix"-[0-9]* upload/
+          ls upload
+          [ "$(ls upload | wc -l)" -eq 2 ] || { echo "expected a wheel and an sdist"; exit 1; }
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: upload/
+          skip-existing: true
+
+  # Attach the built files to the GitHub Release.
+  attach:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - run: gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}

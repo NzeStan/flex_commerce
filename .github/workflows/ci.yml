@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check .
+      - run: ruff format --check .
+      - name: Packaging metadata is generated and up to date
+        run: python scripts/gen_packaging.py --check
+
+  test-postgres:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13"]
+        django: ["4.2", "5.2", "6.0"]
+        exclude:
+          - { python: "3.10", django: "6.0" }
+          - { python: "3.11", django: "6.0" }
+          - { python: "3.13", django: "4.2" }
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      FC_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install "Django~=${{ matrix.django }}.0" djangorestframework "psycopg[binary]" pytest pytest-django pytest-timeout
+      - run: python scripts/run_suites.py
+
+  test-sqlite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install "Django~=5.2.0" djangorestframework pytest pytest-django pytest-timeout pytest-cov
+      - run: python scripts/run_suites.py
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build twine
+      - name: Build every distribution
+        run: |
+          for d in flexcommerce-*; do python -m build --outdir dist "$d"; done
+      - run: twine check --strict dist/*
+      - name: Install the wheels in a clean virtualenv and smoke-test them
+        run: |
+          python -m venv /tmp/fresh
+          /tmp/fresh/bin/pip install --find-links dist "flexcommerce[all]"
+          cd /tmp && /tmp/fresh/bin/python "$GITHUB_WORKSPACE/scripts/smoke_install.py"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/

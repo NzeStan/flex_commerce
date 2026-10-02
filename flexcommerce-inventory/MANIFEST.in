@@ -1,0 +1,6 @@
+include README.md
+include LICENSE
+recursive-include flexcommerce_inventory *.py *.html *.txt
+prune tests
+prune **/__pycache__
+global-exclude *.pyc *.pyo *.pyd .DS_Store
